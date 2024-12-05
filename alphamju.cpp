@@ -23,31 +23,42 @@
 #include <list>
 #include <chrono>
 #include <map>
+//#include <algorithm>
+//#include <execution>
 
+//#include <ppl.h>
+//using namespace concurrency;
+#include <omp.h>
 #include "hands.cpp" // To get definitions and useful functions
 
 using namespace std;
 using namespace std::chrono;
 
-#define WORLDSIZE 2
+#define WORLDSIZE 4
 
 char Worlds[WORLDSIZE][80] = {
-"W:JT98.Q54.JT9.JT9 765.AJT9.765.765 432.32.8432.8432 AKQ.K876.AKQ.AKQ"      ,
-"W:JT984.54.JT9.JT9 765.AJT9.765.765 32.Q32.8432.8432 AKQ.K876.AKQ.AKQ"      ,
-//"W:.Q76.K. .AJT.7. .543.J .K98.5."      ,
-//"W:.543.K. .AJT.7. .Q76.J .K98.5."      ,
-  //  "W:.Q76.. .AJT.. .543.. .K98.."      ,
+"W:JT98.Q54.T9.2 765.AJT9.765. 432.32.8432.3 AKQ.K876.AKQ."      ,
+"W:JT984.54.T9.2 765.AJT9.765. 32.Q32.8432.3 AKQ.K876.AKQ."      ,
+"W:JT98.Q53.T9.2 765.AJT9.765. 432.42.8432.3 AKQ.K876.AKQ."      ,
+"W:JT984.53.T9.2 765.AJT9.765. 32.Q42.8432.3 AKQ.K876.AKQ."      ,
+//"W:JT98.Q54.JT9.JT9 765.AJT9.765.765 432.32.8432.8432 AKQ.K876.AKQ.AKQ"      ,
+//"W:JT984.54.JT9.JT9 765.AJT9.765.765 32.Q32.8432.8432 AKQ.K876.AKQ.AKQ"      ,
+//"W:.Q76.K.9 .AJT.A.A .543.J.8 .K98.5.5"      ,
+//"W:.543.K.9 .AJT.A.A .Q76.J.8 .K98.5.5"      ,
+//  "W:.Q76.. .AJT.. .543.. .K98.."      ,
 //  "W:.543.. .AJT.. .Q76.. .K98.."      ,
 };
 
 unsigned int holdingsc[WORLDSIZE][DDS_HANDS][DDS_SUITS];
 
-int cards = 13; // No of cards in each Deal
-int contract = 12;// 12;
-int trumpc = NOTRUMP;
+int cards = 10; // No of cards in each Deal
+int contract = 10; // 12;
+int trumpc = HEARTS; //  NOTRUMP;
 int firstc = SOUTH;
 int dealerc = EAST;
 int vulc = VUL_NONE;
+
+int M0;
 
 
 struct State
@@ -65,10 +76,18 @@ struct State
     unsigned int mask[4][4]; // All played cards up to now
 };
 
+struct Card
+{
+    short suit;
+    short rank;
+    short player;
+};
+
 struct Result
 {
     char r[WORLDSIZE+1]; // Result, add one extra for \0
 //    char m[WORLDSIZE+1]; // Mask for possible worlds - removed and use 1x0 as r instead
+    struct Card card; // Store card resulting in this
 };
 
 
@@ -85,12 +104,6 @@ struct Playable
     short world;
 };
 
-struct Card
-{
-    short suit;
-    short rank;
-    short player;
-};
 
 inline bool operator<(const Card& L, const Card& R)
 {
@@ -118,7 +131,7 @@ inline bool operator==(const Result& L, const Result& R)
     return true;
 }
 
-set<Playable> legalMoves(short int world, State state)
+set<Playable> legalMoves(short int world, State& state)
 { // Find a list of possible moves
     set<Playable> moves;
     Playable p;
@@ -216,9 +229,11 @@ void printresult(Result& elem)
     printf("[%s]", elem.r);
 }
 
-void printresults(list<Result>& r)
+void printresults(list<Result>& r, const char msg[])
 {
+    printf("%s:<", msg);
     for (Result elem : r) printresult(elem);
+    printf(">");
 }
 
 void showcard(short int suit, short int rank)
@@ -267,9 +282,9 @@ int doubleDummy(short int world, const State& state)
         printf(" first:%c Wrong hand:", "NESW"[dl.first]);
         PrintHand(line, dl.remainCards);
     }
-    printf("DD in World %d: \n", world);
-    PrintFut(line, &fut);
-    PrintHand(line, dl.remainCards);
+//    printf("DD in World %d: \n", world);
+//    PrintFut(line, &fut);
+//    PrintHand(line, dl.remainCards);
     return fut.score[0];
 }
 
@@ -278,7 +293,7 @@ int cardsleft(State& state)
     return cards - state.declarerTricks - state.defenseTricks;
 }
 
-bool stopc(State state, int M, set<short int> worlds, Result& result)
+bool stopc(State& state, int M, set<short int>& worlds, Result& result)
 {
     if (state.declarerTricks >= contract)
     {
@@ -321,11 +336,11 @@ bool stopc(State state, int M, set<short int> worlds, Result& result)
             {
                 result.r[w] = '0';
             }
-            printf("DD:%d; NS took %d tricks and EW %d in W%d.\n", tricks,state.declarerTricks + ns_tricks,
-                state.defenseTricks+ew_tricks,w);
+//            printf("DD:%d; NS took %d tricks and EW %d in W%d.\n", tricks,state.declarerTricks + ns_tricks,
+//                state.defenseTricks+ew_tricks,w);
         }
-        printworlds(worlds);
-        printresult(result);
+//        printworlds(worlds);
+//        printresult(result);
         return true;
     }
     else return false;
@@ -351,7 +366,7 @@ bool dominate(const Result& L, const Result& R) // Return true if L dominate (is
             (L.r[i] == '1' && (R.r[i] == '0' || R.r[i] == 'x')) || 
             (L.r[i] == 'x' && R.r[i] == '0'))
                 )
-            none_yet = false;
+            none_yet = false; // Found a strictly larger element
     }
     if (none_yet)
         return false;
@@ -363,14 +378,26 @@ bool lte(const list<Result>& front, const list<Result> f)
     //TODO
     return true;
 }
-void remove_vectors_lte(list<Result>& result, Result r)
+list<Result> remove_vectors_lte(list<Result>& result, Result r)
 {
-    //TODO
+    list<Result>outresult;
+    for (Result f : result)
+    {
+        if (!dominate(r, f))
+            outresult.push_front(f);
+
+    }
+    return outresult;
 }
 
 bool no_vectorsfrom_gte(list<Result>& result, Result r)
 {
-    //TODO
+    if (result.empty()) return true; // None to be found
+    for (Result f : result)
+    {
+        if (dominate(f, r))
+            return false;
+    }
     return true;
 }
 
@@ -380,19 +407,22 @@ list<Result> minr(list<Result> front, list<Result> f)
     list<Result> result;
     Result r;
     //clearresult(result);
-    
+    if (front.empty()) return f;
+
     for (Result vecto : front)
     {
         for (Result v : f)
         {
-            for (int w = 0; w < WORLDSIZE; w++)
+            r.card = v.card;
+                for (int w = 0; w < WORLDSIZE; w++)
             {
-                if (vecto.r[w] < v.r[w]) // Modify to 1x0
+                if (vecto.r[w]=='0' )//|| (vecto.r[w] == 'x' &&  v.r[w] == '1')) // 0 x 1 order
                     r.r[w] = vecto.r[w];
                 else
                     r.r[w] = v.r[w];
             }
-            remove_vectors_lte(result, r);
+            r.r[WORLDSIZE] = '\0'; // End of string
+            result = remove_vectors_lte(result, r);
             if (no_vectorsfrom_gte(result, r))
             {
                 result.push_back(r);
@@ -403,10 +433,10 @@ list<Result> minr(list<Result> front, list<Result> f)
     return result;
 }
 
-list<Result> maxr(list<Result> front,list<Result> f)
+list<Result> maxr(list<Result>& front,list<Result>& f)
 {
     bool inserted = false;
-    if (front.empty()) return f;
+    if (0/*front.empty()*/) return f;
     else
     {
         list<Result> result = front; // Deepcopy list elements?
@@ -445,9 +475,10 @@ list<Result> maxr(list<Result> front,list<Result> f)
 
 State evaluate_trick(Card move, State& state)
 {
-    int maxc = state.playRank[0], winner = state.playedby[0], lead = state.playSuit[0];
+    int winner, maxc = 0;
     if (trumpc == NOTRUMP)
     {
+        maxc = state.playRank[0], winner = state.playedby[0];
         if (state.playSuit[1] == state.playSuit[0] && state.playRank[1] > maxc)
         {
             maxc = state.playRank[1]; winner = state.playedby[1];
@@ -462,24 +493,43 @@ State evaluate_trick(Card move, State& state)
         }
         
     }
-    else
+    else // Trump contract
     {
-        // TODO modify for Trumps
-        if (state.playSuit[1] == state.playSuit[0] && state.playRank[1] > maxc)
+        if (state.playSuit[0] == trumpc || // Someone played a trump
+            state.playSuit[1] == trumpc ||
+            state.playSuit[2] == trumpc ||
+            move.suit == trumpc)
         {
-            maxc = state.playRank[1]; winner = state.playedby[1];
-        }
-        if (state.playSuit[2] == state.playSuit[0] && state.playRank[2] > maxc)
+            if (move.suit == trumpc)
+            {
+                maxc = move.rank; winner = move.player;
+            }
+
+            for (int i=0;i<3;i++)
+                if (state.playSuit[i] == trumpc && state.playRank[i] > maxc)
+                {
+                    maxc = state.playRank[i]; winner = state.playedby[i];
+                }
+        } 
+        else // No one played any trump
         {
-            maxc = state.playRank[2]; winner = state.playedby[2];
+            maxc = state.playRank[0], winner = state.playedby[0];
+
+            if (state.playSuit[1] == state.playSuit[0] && state.playRank[1] > maxc)
+            {
+                maxc = state.playRank[1]; winner = state.playedby[1];
+            }
+            if (state.playSuit[2] == state.playSuit[0] && state.playRank[2] > maxc)
+            {
+                maxc = state.playRank[2]; winner = state.playedby[2];
+            }
+            if (move.suit == state.playSuit[0] && move.rank > maxc)
+            {
+                maxc = move.rank; winner = move.player;
+            }
         }
-        if (move.suit == state.playSuit[0] && move.rank > maxc)
-        {
-            maxc = move.rank; winner = move.player;
-        }
-   
     }
-    printf("%c wins w %c%c\n", "NESW"[winner], "SHDC"[state.playSuit[0]], dcardRank[maxc]);
+//    printf("%c wins w %c%c\n", "NESW"[winner], "SHDC"[state.playSuit[0]], dcardRank[maxc]);
 
     if (winner == NORTH || winner == SOUTH)
     {
@@ -528,13 +578,17 @@ State playc(Card move, State state)
     return state;
 }
 
+void printfc(list<Result>& front)
+{
+    for (Result r : front)
+        printf("%c%c ", "SHDC"[r.card.suit], dcardRank[r.card.rank]);
+}
 
-
-list<Result> au(State state, int M, set<short int> worlds)
+list<Result> au(State state, int M, set<short int>& worlds)
 {
     Result result;
     clearresult(result);
-    printf("au(%d)", M);
+//    printf("au(%d)", M);
 
     if (stopc(state, M, worlds, result))
     {
@@ -566,10 +620,17 @@ list<Result> au(State state, int M, set<short int> worlds)
         }
         for (it_playcards = playcards.begin(); it_playcards != playcards.end(); it_playcards++)
         {
-            showcard(it_playcards->first.suit, it_playcards->first.rank);
+//            showcard(it_playcards->first.suit, it_playcards->first.rank);
             State s = playc(it_playcards->first, state);
             f = au(s, M, it_playcards->second);
-//            front = minr(front, f); // TODO
+//            printresults(f, "f min");
+//            printresults(front, "front before min");
+            for (Result fc : f)
+            {
+                fc.card = it_playcards->first; // Store card resulting in this
+            }
+            front = minr(front, f); 
+//            printresults(front, "front after min");
         }
     }
     else // Max node
@@ -578,29 +639,85 @@ list<Result> au(State state, int M, set<short int> worlds)
         for (int w : worlds)
         {
             set<Playable> l;
-            l.merge(legalMoves(w,state));
-            allMoves.merge(l); 
+            l.merge(legalMoves(w, state));
+            allMoves.merge(l);
         }
+        int len = 0;
         for (Playable move : allMoves)
         {
             card.suit = move.suit;
             card.rank = move.rank;
             card.player = move.player;
             playcards[card].insert(move.world); // List of worlds w playable card
+            len++;
         }
-        for (it_playcards = playcards.begin(); it_playcards != playcards.end(); it_playcards++)
+/*        Playable* crds = new Playable[len];
+        list<Result>* f3 = new list<Result>[len];
+#pragma omp parallel for
+        for (int i = 0; i < len; i++)
         {
-            showcard(it_playcards->first.suit, it_playcards->first.rank);
+            State s = playc(crds[i].it_playcards->first, state);
+        } */
+
+        for(it_playcards = playcards.begin(); it_playcards != playcards.end(); it_playcards++)
+        {
+            //            showcard(it_playcards->first.suit, it_playcards->first.rank);
             State s = playc(it_playcards->first, state);
             f = au(s, M - 1, it_playcards->second);
+            for (Result fc : f)
+            {
+                fc.card = it_playcards->first; // Store card resulting in this
+            }
+            //            printresults(f, "f max");
+            //          printresults(front, "front before max");
             front = maxr(front, f);
+            //          printresults(front, "front aftermax");*/
         }
+//        front = maxr(front, f);
+
+        /*        struct Flist
+                {
+                    void operator()() {}
+                    list<Result> fl;
+                };
+                Flist flist = std::for_each(
+                        std::execution::par,
+                        playcards.begin(),
+                        playcards.end(),
+                        [&](auto&& item)
+                        {
+                            State s = playc(item->first, state);
+                        //    f2->item = au(s, M - 1, item->second);
+                        }
+
+                    );
+                    //for (it_playcards = playcards.begin(); it_playcards != playcards.end(); it_playcards++)
+                      //  front = maxr(front, f2->it_playcards);
+
+
+            }
+        //  printresults(front, "front exit_au"); */
     }
+    if (M >= (M0))
+        printfc(front);
     return front;
+    
 }
 
 State start; // Zero-start
 
+double score(list<Result> r)
+{
+    int ok = 0, nvec=0;
+    for (Result ri : r)
+    {
+        for (int i = 0; i < WORLDSIZE; i++)
+            if (ri.r[i] == '1')
+                ok++;
+        nvec++;
+    }
+    return ((100.0 * ok) / (WORLDSIZE * nvec));
+}
 
 int main()
 {
@@ -614,10 +731,10 @@ int main()
     init();
     for (int i = 0; i < WORLDSIZE; i++)
         w.insert(i);
-    r = au(state, 3,w);
-    printf("\nFINAL:");
-    printresults(r);
-    //printf(" Score %5.2f",score(r));
+    M0 = 1;
+    r = au(state, M0,w);
+    printresults(r,"Final");
+    printf(" Score: %5.2f %%. ",score(r));
     auto stop_time = high_resolution_clock::now();
     auto duration = duration_cast<microseconds>(stop_time - start_time);
     printf("Time taken by function : %f seconds\n", duration.count()/1000000.0);
