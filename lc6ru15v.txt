@@ -1,0 +1,9 @@
+generate 10000
+produce 16
+predeal north SAK85,H642,DAQJ952
+predeal east D74,CKJ765
+predeal south SJ92,HAQ3,DKT8,CAT83
+predeal west D63,CQ942
+
+action 
+	printpbn
