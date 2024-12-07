@@ -23,24 +23,37 @@
 #include <list>
 #include <chrono>
 #include <map>
-//#include <algorithm>
-//#include <execution>
+#include <algorithm>
+#include <execution>
+#include <filesystem>
 
-//#include <ppl.h>
-//using namespace concurrency;
-#include <omp.h>
+#include <ppl.h>
+using namespace concurrency;
+//#include <omp.h>
 #include "hands.cpp" // To get definitions and useful functions
 
 using namespace std;
 using namespace std::chrono;
+namespace fs = std::filesystem;
 
-#define WORLDSIZE 4
+int WORLDSIZE = 12; // Actual dynamic number of deals
+#define MWORLDSIZE 200 // Max worldsize
 
-char Worlds[WORLDSIZE][80] = {
+
+char Worlds[MWORLDSIZE][130] = {
 "W:JT98.Q54.T9.2 765.AJT9.765. 432.32.8432.3 AKQ.K876.AKQ."      ,
 "W:JT984.54.T9.2 765.AJT9.765. 32.Q32.8432.3 AKQ.K876.AKQ."      ,
 "W:JT98.Q53.T9.2 765.AJT9.765. 432.42.8432.3 AKQ.K876.AKQ."      ,
 "W:JT984.53.T9.2 765.AJT9.765. 32.Q42.8432.3 AKQ.K876.AKQ."      ,
+"W:JT98.Q54.T9.2 765.AJT9.765. 432.32.8432.3 AKQ.K876.AKQ."      ,
+"W:JT984.54.T9.2 765.AJT9.765. 32.Q32.8432.3 AKQ.K876.AKQ."      ,
+"W:JT98.Q53.T9.2 765.AJT9.765. 432.42.8432.3 AKQ.K876.AKQ."      ,
+"W:JT984.53.T9.2 765.AJT9.765. 32.Q42.8432.3 AKQ.K876.AKQ."      ,
+"W:JT98.Q54.T9.2 765.AJT9.765. 432.32.8432.3 AKQ.K876.AKQ."      ,
+"W:JT984.54.T9.2 765.AJT9.765. 32.Q32.8432.3 AKQ.K876.AKQ."      ,
+"W:JT98.Q53.T9.2 765.AJT9.765. 432.42.8432.3 AKQ.K876.AKQ."      ,
+"W:JT984.53.T9.2 765.AJT9.765. 32.Q42.8432.3 AKQ.K876.AKQ."      ,
+
 //"W:JT98.Q54.JT9.JT9 765.AJT9.765.765 432.32.8432.8432 AKQ.K876.AKQ.AKQ"      ,
 //"W:JT984.54.JT9.JT9 765.AJT9.765.765 32.Q32.8432.8432 AKQ.K876.AKQ.AKQ"      ,
 //"W:.Q76.K.9 .AJT.A.A .543.J.8 .K98.5.5"      ,
@@ -49,7 +62,7 @@ char Worlds[WORLDSIZE][80] = {
 //  "W:.543.. .AJT.. .Q76.. .K98.."      ,
 };
 
-unsigned int holdingsc[WORLDSIZE][DDS_HANDS][DDS_SUITS];
+unsigned int holdingsc[MWORLDSIZE][DDS_HANDS][DDS_SUITS];
 
 int cards = 10; // No of cards in each Deal
 int contract = 10; // 12;
@@ -78,14 +91,14 @@ struct State
 
 struct Card
 {
-    short suit;
+    short suit; 
     short rank;
     short player;
 };
 
 struct Result
 {
-    char r[WORLDSIZE+1]; // Result, add one extra for \0
+    char r[MWORLDSIZE+1]; // Result, add one extra for \0
 //    char m[WORLDSIZE+1]; // Mask for possible worlds - removed and use 1x0 as r instead
     struct Card card; // Store card resulting in this
 };
@@ -98,10 +111,11 @@ inline bool operator<(const Result& L, const Result& R)
 
 struct Playable
 {
-    short suit;
-    short rank;
-    short player;
+//    short suit;
+//    short rank;
+//    short player;
     short world;
+    struct Card c;
 };
 
 
@@ -118,9 +132,9 @@ inline bool operator<(const Card& L, const Card& R)
 
 void clearresult(Result& r)
 {
-    for (int i = 0; i < WORLDSIZE; i++)
+    for (int i = 0; i < MWORLDSIZE; i++)
         r.r[i] = 'x'; // Assume everything is unknown yet
-    r.r[WORLDSIZE] = '\0'; // End of string for printing
+    r.r[MWORLDSIZE] = '\0'; // End of string for printing
 }
 
 inline bool operator==(const Result& L, const Result& R)
@@ -139,8 +153,8 @@ set<Playable> legalMoves(short int world, State& state)
     if (state.playno>0 && holdingsc[world][state.handtoplay][state.playSuit[0]] > 0) 
     { // There has been card played; if possible: Follow suit
         short int s = state.playSuit[0];
-        p.suit = s;
-        p.player = state.handtoplay;
+        p.c.suit = s;
+        p.c.player = state.handtoplay;
         unsigned int m = RA;
         bool adjacent = false;
         for (int r = 14; r > 1; r--) // Probably can be done quicker than try&error..
@@ -149,7 +163,7 @@ set<Playable> legalMoves(short int world, State& state)
             {
                 if (!adjacent)
                 {
-                    p.rank = r;
+                    p.c.rank = r;
                     p.world = world;
                     moves.insert(p);
                     adjacent = true;
@@ -163,8 +177,8 @@ set<Playable> legalMoves(short int world, State& state)
     {
         for (short int s = 0; s < DDS_SUITS; s++)
             {
-                p.suit = s;
-                p.player = state.handtoplay;
+                p.c.suit = s;
+                p.c.player = state.handtoplay;
                 unsigned int m = RA;
                 bool adjacent = false;
                 for (short int r = 14; r >1; r--)
@@ -173,7 +187,7 @@ set<Playable> legalMoves(short int world, State& state)
                     {
                         if (!adjacent)
                         {
-                            p.rank = r; 
+                            p.c.rank = r; 
                             p.world = world;
                             moves.insert(p);
                             adjacent = true;
@@ -189,13 +203,13 @@ set<Playable> legalMoves(short int world, State& state)
 
 inline bool operator<(const Playable& L,const Playable& R)
 {
-    if (L.suit < R.suit)
+    if (L.c.suit < R.c.suit)
         return true;
-    else if (L.suit > R.suit)
+    else if (L.c.suit > R.c.suit)
         return false;
-    else if (L.rank < R.rank)
+    else if (L.c.rank < R.c.rank)
         return true;
-    else if (L.rank > R.rank)
+    else if (L.c.rank > R.c.rank)
         return false;
     else if (L.world < R.world)
         return true;
@@ -226,7 +240,10 @@ void printworlds(set<short int> worlds)
 }
 void printresult(Result& elem)
 {
-    printf("[%s]", elem.r);
+    printf("[");
+    for (int i=0;i<WORLDSIZE;i++)
+        printf("%c", elem.r[i]);
+    printf("]");
 }
 
 void printresults(list<Result>& r, const char msg[])
@@ -238,12 +255,17 @@ void printresults(list<Result>& r, const char msg[])
 
 void showcard(short int suit, short int rank)
 {
-  printf("Play %c%c ", "SHDC"[suit], dcardRank[rank]);
+    printf("Play %c%c ", "SHDC"[suit], dcardRank[rank]);
+}
+
+void showcard2(short int suit, short int rank)
+{
+    printf("%c%c", "SHDC"[suit], dcardRank[rank]);
 }
 
 void showmove(Playable move)
 {
-    showcard(move.suit, move.rank);
+    showcard(move.c.suit, move.c.rank);
 }
 
 int doubleDummy(short int world, const State& state)
@@ -253,7 +275,7 @@ int doubleDummy(short int world, const State& state)
     int target;
     int solutions;
     int mode;
-    int threadIndex = 0;
+    int threadIndex = world%16;
     int res;
     char line[80];// , lin[80];
     strcpy_s(line, 80, "DD:"); //Double Dummy result
@@ -273,7 +295,7 @@ int doubleDummy(short int world, const State& state)
                 dl.remainCards[h][s] = holdingsc[world][h][s] & ~state.mask[h][s]; // Remove played cards
 
     target = -1;    solutions = 1;    mode = 1;
-    res = SolveBoard(dl, target, solutions, mode, &fut, threadIndex);
+     res = SolveBoard(dl, target, solutions, mode, &fut, threadIndex);
 
     if (res != RETURN_NO_FAULT)
     {
@@ -291,6 +313,22 @@ int doubleDummy(short int world, const State& state)
 int cardsleft(State& state)
 {
     return cards - state.declarerTricks - state.defenseTricks;
+}
+
+double score(list<Result> r)
+{
+    int ok = 0;
+    double nvec = 0.0;
+    for (Result ri : r)
+    {
+        for (int i = 0; i < WORLDSIZE; i++)
+            if (ri.r[i] == '1')
+                ok++;
+        nvec++;
+    }
+    if (nvec > 0)
+        return ((100.0 * ok) / (WORLDSIZE * nvec));
+    else return -1;
 }
 
 bool stopc(State& state, int M, set<short int>& worlds, Result& result)
@@ -313,34 +351,85 @@ bool stopc(State& state, int M, set<short int>& worlds, Result& result)
     }
     else if (M == 0)
     {
-        int ns_tricks,ew_tricks;
+
+  /*      size_t len = worlds.size();
+        short *wrl = new short[len];
+        int i = 0;
         for (short int w : worlds)
         {
-            int tricks = doubleDummy(w, state);
-            if (state.Min_node)
+            wrl[i] = w; i++;
+        }*/
+
+            //#pragma omp  parallel for sections
+                    //parallel for clauses() num_threads(10) 
+                    //for_each (int wi=0;wi<len;wi++) 
+        if (WORLDSIZE <= 16)
+        {
+            parallel_for_each(begin(worlds), end(worlds), [&](short wi)
+                //            for_each(short int w : worlds)
+                {
+                    int tricks;
+                    int ns_tricks, ew_tricks;
+                    //                    printf("Trying w%d? ", wi);
+                    tricks = doubleDummy(wi, state);
+                    //                  printf("%d tricks..!", tricks);
+                    if (state.Min_node)
+                    {
+                        ns_tricks = cardsleft(state) - tricks;
+                        ew_tricks = tricks;
+                    }
+                    else
+                    {
+                        ns_tricks = tricks;
+                        ew_tricks = cardsleft(state) - tricks;
+                    }
+                    // result.m[w] = '1';
+                    if (state.declarerTricks + ns_tricks >= contract)
+                    {
+                        result.r[wi] = '1';
+                    }
+                    else
+                    {
+                        result.r[wi] = '0';
+                    }
+                    //            printf("DD:%d; NS took %d tricks and EW %d in W%d.\n", tricks,state.declarerTricks + ns_tricks,
+                    //                state.defenseTricks+ew_tricks,w);
+                });
+        }
+        else
+        {
+            for (short wi : worlds)
+                //            for_each(short int w : worlds)
             {
-                ns_tricks = cardsleft(state) - tricks;
-                ew_tricks = tricks;
+                int tricks;
+                int ns_tricks, ew_tricks;
+                //                    printf("Trying w%d? ", wi);
+                tricks = doubleDummy(wi, state);
+                //                  printf("%d tricks..!", tricks);
+                if (state.Min_node)
+                {
+                    ns_tricks = cardsleft(state) - tricks;
+                    ew_tricks = tricks;
+                }
+                else
+                {
+                    ns_tricks = tricks;
+                    ew_tricks = cardsleft(state) - tricks;
+                }
+                // result.m[w] = '1';
+                if (state.declarerTricks + ns_tricks >= contract)
+                {
+                    result.r[wi] = '1';
+                }
+                else
+                {
+                    result.r[wi] = '0';
+                }
             }
-            else
-            {
-                ns_tricks = tricks;
-                ew_tricks = cardsleft(state) - tricks;
-            }
-           // result.m[w] = '1';
-            if (state.declarerTricks + ns_tricks >= contract)
-            {
-                result.r[w] = '1';
-            }
-            else
-            {
-                result.r[w] = '0';
-            }
-//            printf("DD:%d; NS took %d tricks and EW %d in W%d.\n", tricks,state.declarerTricks + ns_tricks,
-//                state.defenseTricks+ew_tricks,w);
         }
 //        printworlds(worlds);
 //        printresult(result);
+//        delete[] wrl;
         return true;
     }
     else return false;
@@ -378,13 +467,23 @@ bool lte(const list<Result>& front, const list<Result> f)
     //TODO
     return true;
 }
-list<Result> remove_vectors_lte(list<Result>& result, Result r)
+
+bool notin(const list<Result>& outresult, Result r)
+{
+    for (Result f : outresult)
+        if (f == r)
+            return false;
+    return true;
+}
+
+list<Result> remove_vectors_lte(const list<Result>& result, Result r)
 {
     list<Result>outresult;
-    for (Result f : result)
+    for (const Result& f : result)
     {
-        if (!dominate(r, f))
-            outresult.push_front(f);
+//        if (!dominate(r, f))
+            if (!dominate(r, f) && notin(outresult,f))
+                outresult.push_front(f);
 
     }
     return outresult;
@@ -423,8 +522,9 @@ list<Result> minr(list<Result> front, list<Result> f)
             }
             r.r[WORLDSIZE] = '\0'; // End of string
             result = remove_vectors_lte(result, r);
-            if (no_vectorsfrom_gte(result, r))
-            {
+//            if (no_vectorsfrom_gte(result, r) && r != v)
+              if (no_vectorsfrom_gte(result, r) )
+                {
                 result.push_back(r);
             }
         }
@@ -578,13 +678,13 @@ State playc(Card move, State state)
     return state;
 }
 
-void printfc(list<Result>& front)
+void printfc(Card c, list<Result>& front, list<Result>& f)
 {
-    for (Result r : front)
-        printf("%c%c ", "SHDC"[r.card.suit], dcardRank[r.card.rank]);
+    printf("%c:%c%c%3.0f%%/%2.0f%% ","NESW"[c.player], "SHDC"[c.suit], dcardRank[c.rank],score(front), score(f));
 }
 
-list<Result> au(State state, int M, set<short int>& worlds)
+
+list<Result> au(State state, int M, set<short int> worlds)
 {
     Result result;
     clearresult(result);
@@ -602,6 +702,9 @@ list<Result> au(State state, int M, set<short int>& worlds)
     struct Card card;
     list<Result> front;
     list<Result> f;
+    if (M >= (M0))
+        printf("\n");
+
     if (state.Min_node)
     {
         set<Playable> allMoves;
@@ -613,9 +716,9 @@ list<Result> au(State state, int M, set<short int>& worlds)
         }
         for (Playable move : allMoves)
         {
-            card.suit = move.suit;
-            card.rank = move.rank;
-            card.player = move.player;
+            card.suit = move.c.suit;
+            card.rank = move.c.rank;
+            card.player = move.c.player;
             playcards[card].insert(move.world);
         }
         for (it_playcards = playcards.begin(); it_playcards != playcards.end(); it_playcards++)
@@ -625,13 +728,19 @@ list<Result> au(State state, int M, set<short int>& worlds)
             f = au(s, M, it_playcards->second);
 //            printresults(f, "f min");
 //            printresults(front, "front before min");
+
             for (Result fc : f)
             {
                 fc.card = it_playcards->first; // Store card resulting in this
             }
             front = minr(front, f); 
+            if (M >= (M0))
+                         printfc(it_playcards->first, front, f);
 //            printresults(front, "front after min");
         }
+//        if (M >= (M0))
+  //          printfc(it_playcards->first, front, f);
+
     }
     else // Max node
     {
@@ -642,39 +751,52 @@ list<Result> au(State state, int M, set<short int>& worlds)
             l.merge(legalMoves(w, state));
             allMoves.merge(l);
         }
-        int len = 0;
+/*        size_t len = allMoves.size();
+        Playable* crds = new Playable[len];
+        set<short>* wrlds = new set<short>[len];
+        list<Result>* f3 = new list<Result>[len];
+        int j = 0; */
         for (Playable move : allMoves)
         {
-            card.suit = move.suit;
-            card.rank = move.rank;
-            card.player = move.player;
+            card.suit = move.c.suit;
+            card.rank = move.c.rank;
+            card.player = move.c.player;
             playcards[card].insert(move.world); // List of worlds w playable card
-            len++;
+//            crds[j] = move;
+//            wrlds[j] = playcards[card];
+//            j++;
         }
-/*        Playable* crds = new Playable[len];
-        list<Result>* f3 = new list<Result>[len];
-#pragma omp parallel for
+        State s;
+/*//#pragma omp parallel for
         for (int i = 0; i < len; i++)
         {
-            State s = playc(crds[i].it_playcards->first, state);
-        } */
+            s = playc(crds[i].c, state);
+            f = au(s, M - 1, wrlds[i]);
+        } 
 
-        for(it_playcards = playcards.begin(); it_playcards != playcards.end(); it_playcards++)
+        for (int i = 0; i < len; i++)
+        {
+            front = maxr(front, f3[i]);
+        } */
+        /*parallel_*/for(it_playcards = playcards.begin(); it_playcards != playcards.end(); it_playcards++)
         {
             //            showcard(it_playcards->first.suit, it_playcards->first.rank);
-            State s = playc(it_playcards->first, state);
+            s = playc(it_playcards->first, state);
             f = au(s, M - 1, it_playcards->second);
             for (Result fc : f)
             {
                 fc.card = it_playcards->first; // Store card resulting in this
             }
+
             //            printresults(f, "f max");
             //          printresults(front, "front before max");
             front = maxr(front, f);
-            //          printresults(front, "front aftermax");*/
-        }
+            if (M >= (M0))
+                printfc(it_playcards->first, front,f);
+            //          printresults(front, "front aftermax");
+        } 
 //        front = maxr(front, f);
-
+    
         /*        struct Flist
                 {
                     void operator()() {}
@@ -697,47 +819,128 @@ list<Result> au(State state, int M, set<short int>& worlds)
 
             }
         //  printresults(front, "front exit_au"); */
+        //delete[] f3;
+        //delete[] wrlds;
+        //delete[] crds;
+
     }
-    if (M >= (M0))
-        printfc(front);
+//    if (M >= (M0))
+//        printf("\n");
     return front;
     
 }
 
 State start; // Zero-start
 
-double score(list<Result> r)
+#include <sstream>
+#include <iostream>
+
+void doimport(char* fn)
 {
-    int ok = 0, nvec=0;
-    for (Result ri : r)
+    FILE* f;
+    char inlin[130];
+    int e = fopen_s(&f, fn, "r");
+    if (e != NULL)
     {
-        for (int i = 0; i < WORLDSIZE; i++)
-            if (ri.r[i] == '1')
-                ok++;
-        nvec++;
+        printf("Could not open %s in ", fn);
+        cout << fs::current_path();
     }
-    return ((100.0 * ok) / (WORLDSIZE * nvec));
+    else
+    {
+        int deal = 0;
+        while (fgets(inlin, 128, f) != NULL && deal < MWORLDSIZE)
+        {
+            if (strncmp(inlin, "[Deal", 5) == 0)
+            {
+                if (inlin[6] == '"')
+                {
+                    char* ptr = strrchr(inlin, '"');
+//                    cout << ptr;
+                    __int64 chars = ptr - (inlin + 6) -1;
+//                    cout << chars;
+                    strncpy_s(Worlds[deal], 128, inlin+7, chars);
+                    ptr = strchr(inlin+7, ' ');
+                    cards = int(ptr - (inlin + 7) - 5);
+                    deal++;
+                    WORLDSIZE = deal;
+                }
+//                sscanf_s(inlin + 6, "%s",deal,128);
+  //              printf("<%s>\n",deal);
+            }
+        } 
+        fclose(f);
+    }
 }
 
-int main()
+
+int main(int argc, char *argv[])
 {
     set<short int> w;
     list<Result> r;
     auto start_time = high_resolution_clock::now();
 
     State state = start;
-    state.firstc = SOUTH; 
-    state.handtoplay = SOUTH;
+    state.firstc = WEST; 
+    state.handtoplay = WEST;
+    M0 = 10;
+    //cout << argc;
+     if (argc > 4)
+    {
+        M0 = atoi(argv[1]);
+        contract = atoi(argv[2]);
+        if (argv[3][0] == 'H') trumpc = HEARTS;
+        else if (argv[3][0] == 'S') trumpc = SPADES;
+        else if (argv[3][0] == 'D') trumpc = DIAMONDS;
+        else if (argv[3][0] == 'C') trumpc = CLUBS;
+        else if (argv[3][0] == 'N') trumpc = NOTRUMP;
+        else printf("Strange trump: %c ?[CDHSN]", argv[3][0]);
+        doimport(argv[4]);
+        if (argc > 5)
+        {
+            if (argv[5][0] == 'N') state.firstc = NORTH;
+            else if (argv[5][0] == 'S') state.firstc = SOUTH;
+            else if (argv[5][0] == 'E') state.firstc = EAST;
+            else if (argv[5][0] == 'W') state.firstc = WEST;
+            else printf("Strange leader: %c ?[NSEW]", argv[5][0]);
+        }
+    }
+     state.handtoplay = state.firstc;
+     if (state.firstc == NORTH || state.firstc == SOUTH)
+         state.Min_node = false;
+     else state.Min_node = true;
+
+     printf("M=%d. %d deals w %d cards. Goal: %d tricks in %c, %c begins",
+         M0, WORLDSIZE, cards, contract, "SHDCN"[trumpc], "NESW"[state.firstc]);
+     if (argc>6) // Card given
+     {
+         int ctrumpc = HEARTS;
+         if (argv[6][0] == 'H') ctrumpc = HEARTS;
+         else if (argv[6][0] == 'S') ctrumpc = SPADES;
+         else if (argv[6][0] == 'D') ctrumpc = DIAMONDS;
+         else if (argv[6][0] == 'C') ctrumpc = CLUBS;
+         else if (argv[6][0] == 'N') ctrumpc = NOTRUMP;
+         else printf("Strange trump card: %c ?[CDHSN]", argv[3][0]);
+         Playable move;
+         move.c.suit = ctrumpc;
+         move.c.player = state.firstc;
+         for (int i = 0; i < 16; i++)
+             if (dcardRank[i] == toupper(argv[6][1]))
+                 move.c.rank = i;
+         state = playc(move.c, state);
+         printf(" with ");
+         showcard2(move.c.suit,move.c.rank);
+     } 
+     printf(".");
     init();
     for (int i = 0; i < WORLDSIZE; i++)
         w.insert(i);
-    M0 = 1;
     r = au(state, M0,w);
-    printresults(r,"Final");
+
+    printresults(r,"\nFinal");
     printf(" Score: %5.2f %%. ",score(r));
     auto stop_time = high_resolution_clock::now();
     auto duration = duration_cast<microseconds>(stop_time - start_time);
-    printf("Time taken by function : %f seconds\n", duration.count()/1000000.0);
+    printf("Time taken by function :%8.3f seconds\n", duration.count()/1000000.0);
 
     return 0;
 }
