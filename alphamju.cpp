@@ -36,8 +36,8 @@ using namespace std;
 using namespace std::chrono;
 namespace fs = std::filesystem;
 
-int WORLDSIZE = 12; // Actual dynamic number of deals
-#define MWORLDSIZE 200 // Max worldsize
+int WORLDSIZE = 8; // Actual dynamic number of deals
+#define MWORLDSIZE MAXNOOFBOARDS // Max worldsize, same as in DDS
 
 
 char Worlds[MWORLDSIZE][130] = {
@@ -45,10 +45,7 @@ char Worlds[MWORLDSIZE][130] = {
 "W:JT984.54.T9.2 765.AJT9.765. 32.Q32.8432.3 AKQ.K876.AKQ."      ,
 "W:JT98.Q53.T9.2 765.AJT9.765. 432.42.8432.3 AKQ.K876.AKQ."      ,
 "W:JT984.53.T9.2 765.AJT9.765. 32.Q42.8432.3 AKQ.K876.AKQ."      ,
-"W:JT98.Q54.T9.2 765.AJT9.765. 432.32.8432.3 AKQ.K876.AKQ."      ,
-"W:JT984.54.T9.2 765.AJT9.765. 32.Q32.8432.3 AKQ.K876.AKQ."      ,
-"W:JT98.Q53.T9.2 765.AJT9.765. 432.42.8432.3 AKQ.K876.AKQ."      ,
-"W:JT984.53.T9.2 765.AJT9.765. 32.Q42.8432.3 AKQ.K876.AKQ."      ,
+
 "W:JT98.Q54.T9.2 765.AJT9.765. 432.32.8432.3 AKQ.K876.AKQ."      ,
 "W:JT984.54.T9.2 765.AJT9.765. 32.Q32.8432.3 AKQ.K876.AKQ."      ,
 "W:JT98.Q53.T9.2 765.AJT9.765. 432.42.8432.3 AKQ.K876.AKQ."      ,
@@ -67,8 +64,8 @@ unsigned int holdingsc[MWORLDSIZE][DDS_HANDS][DDS_SUITS];
 int cards = 10; // No of cards in each Deal
 int contract = 10; // 12;
 int trumpc = HEARTS; //  NOTRUMP;
-int firstc = SOUTH;
-int dealerc = EAST;
+//int firstc = SOUTH;
+//int dealerc = EAST;
 int vulc = VUL_NONE;
 
 int M0;
@@ -268,14 +265,14 @@ void showmove(Playable move)
     showcard(move.c.suit, move.c.rank);
 }
 
-int doubleDummy(short int world, const State& state)
+int doubleDummy(short int world, const State& state,int threadIndex)
 {
     deal dl;
     futureTricks fut; 
     int target;
     int solutions;
     int mode;
-    int threadIndex = world%16;
+//    int threadIndex = world%16;
     int res;
     char line[80];// , lin[80];
     strcpy_s(line, 80, "DD:"); //Double Dummy result
@@ -296,6 +293,8 @@ int doubleDummy(short int world, const State& state)
 
     target = -1;    solutions = 1;    mode = 1;
      res = SolveBoard(dl, target, solutions, mode, &fut, threadIndex);
+ //    if (world == 0)
+ //        printf("W0:%d!", fut.score[0]);
 
     if (res != RETURN_NO_FAULT)
     {
@@ -317,19 +316,28 @@ int cardsleft(State& state)
 
 double score(list<Result> r)
 {
-    int ok = 0;
+    int ok = 0, fail = 0;
     double nvec = 0.0;
-    for (Result ri : r)
+    for (const Result& ri : r)
     {
         for (int i = 0; i < WORLDSIZE; i++)
             if (ri.r[i] == '1')
                 ok++;
+            else if (ri.r[i] == '0')
+                fail++;
         nvec++;
     }
-    if (nvec > 0)
+    if (ok+fail > 0)
         return ((100.0 * ok) / (WORLDSIZE * nvec));
+//    return ((100.0 * ok) / (1.0 * ok + 1.0 * fail));//WORLDSIZE * nvec));
     else return -1;
 }
+
+struct Worldpair
+{
+    short w;
+    int ix;
+};
 
 bool stopc(State& state, int M, set<short int>& worlds, Result& result)
 {
@@ -352,27 +360,54 @@ bool stopc(State& state, int M, set<short int>& worlds, Result& result)
     else if (M == 0)
     {
 
-  /*      size_t len = worlds.size();
-        short *wrl = new short[len];
-        int i = 0;
-        for (short int w : worlds)
-        {
-            wrl[i] = w; i++;
-        }*/
+        /*      size_t len = worlds.size();
+              short *wrl = new short[len];
+              int i = 0;
+              for (short int w : worlds)
+              {
+                  wrl[i] = w; i++;
+              }*/
 
-            //#pragma omp  parallel for sections
-                    //parallel for clauses() num_threads(10) 
-                    //for_each (int wi=0;wi<len;wi++) 
-        if (WORLDSIZE <= 16)
+              //#pragma omp  parallel for sections
+                      //parallel for clauses() num_threads(10) 
+                      //for_each (int wi=0;wi<len;wi++) 
+        bool still_remain = true;
+        set<short int>::iterator itr;
+        itr = worlds.begin();
+//        short wi[16];
+
+        //        vector<short,16> wi;
+        while (still_remain) // Split upp all into <16-chunks
         {
-            parallel_for_each(begin(worlds), end(worlds), [&](short wi)
+            int maxi = 0;
+            list<Worldpair> worldps;
+
+            while (still_remain && maxi < 15)
+            {
+                if (itr != worlds.end())
+                {
+                    Worldpair wp;
+                    wp.w = *itr; // w real world number
+                    wp.ix = maxi; // threadID 0..15
+                    worldps.push_back(wp);
+//                    wi[maxi] = *itr;
+                    itr++;
+                    maxi++;
+                }
+                else {
+                    still_remain = false;
+                }
+
+            }
+            parallel_for_each(begin(worldps), end(worldps), [&](Worldpair wi)
                 //            for_each(short int w : worlds)
+//            parallel_for(0, 15, [](int value) 
                 {
                     int tricks;
                     int ns_tricks, ew_tricks;
                     //                    printf("Trying w%d? ", wi);
-                    tricks = doubleDummy(wi, state);
-                    //                  printf("%d tricks..!", tricks);
+                    tricks = doubleDummy(wi.w, state, wi.ix);
+//                                      printf(" %d:%d tricks!", wi.w, tricks);
                     if (state.Min_node)
                     {
                         ns_tricks = cardsleft(state) - tricks;
@@ -386,47 +421,19 @@ bool stopc(State& state, int M, set<short int>& worlds, Result& result)
                     // result.m[w] = '1';
                     if (state.declarerTricks + ns_tricks >= contract)
                     {
-                        result.r[wi] = '1';
+                        result.r[wi.w] = '1';
                     }
                     else
                     {
-                        result.r[wi] = '0';
+                        result.r[wi.w] = '0';
                     }
                     //            printf("DD:%d; NS took %d tricks and EW %d in W%d.\n", tricks,state.declarerTricks + ns_tricks,
                     //                state.defenseTricks+ew_tricks,w);
                 });
+
         }
-        else
-        {
-            for (short wi : worlds)
-                //            for_each(short int w : worlds)
-            {
-                int tricks;
-                int ns_tricks, ew_tricks;
-                //                    printf("Trying w%d? ", wi);
-                tricks = doubleDummy(wi, state);
-                //                  printf("%d tricks..!", tricks);
-                if (state.Min_node)
-                {
-                    ns_tricks = cardsleft(state) - tricks;
-                    ew_tricks = tricks;
-                }
-                else
-                {
-                    ns_tricks = tricks;
-                    ew_tricks = cardsleft(state) - tricks;
-                }
-                // result.m[w] = '1';
-                if (state.declarerTricks + ns_tricks >= contract)
-                {
-                    result.r[wi] = '1';
-                }
-                else
-                {
-                    result.r[wi] = '0';
-                }
-            }
-        }
+    
+    
 //        printworlds(worlds);
 //        printresult(result);
 //        delete[] wrl;
@@ -470,7 +477,7 @@ bool lte(const list<Result>& front, const list<Result> f)
 
 bool notin(const list<Result>& outresult, Result r)
 {
-    for (Result f : outresult)
+    for (const Result& f : outresult)
         if (f == r)
             return false;
     return true;
@@ -492,8 +499,9 @@ list<Result> remove_vectors_lte(const list<Result>& result, Result r)
 bool no_vectorsfrom_gte(list<Result>& result, Result r)
 {
     if (result.empty()) return true; // None to be found
-    for (Result f : result)
-    {
+    for (const Result& f : result)
+        //for (Result f : result)
+        {
         if (dominate(f, r))
             return false;
     }
@@ -508,23 +516,24 @@ list<Result> minr(list<Result> front, list<Result> f)
     //clearresult(result);
     if (front.empty()) return f;
 
-    for (Result vecto : front)
+    for (const Result& vecto : front) // mod
     {
-        for (Result v : f)
+        for (const Result& v : f) // mod
         {
             r.card = v.card;
-                for (int w = 0; w < WORLDSIZE; w++)
+            for (int w = 0; w < WORLDSIZE; w++)
             {
-                if (vecto.r[w]=='0' )//|| (vecto.r[w] == 'x' &&  v.r[w] == '1')) // 0 x 1 order
-                    r.r[w] = vecto.r[w];
+                if (vecto.r[w] == '0' || (vecto.r[w] == 'x' &&  v.r[w] == '1')) // 0 x 1 order
+//                  if (vecto.r[w] == '0')//|| (vecto.r[w] == 'x' &&  v.r[w] == '1')) // 0 x 1 order
+                        r.r[w] = vecto.r[w];
                 else
                     r.r[w] = v.r[w];
             }
             r.r[WORLDSIZE] = '\0'; // End of string
             result = remove_vectors_lte(result, r);
 //            if (no_vectorsfrom_gte(result, r) && r != v)
-              if (no_vectorsfrom_gte(result, r) )
-                {
+            if (no_vectorsfrom_gte(result, r) )
+            {
                 result.push_back(r);
             }
         }
@@ -540,9 +549,10 @@ list<Result> maxr(list<Result>& front,list<Result>& f)
     else
     {
         list<Result> result = front; // Deepcopy list elements?
-        for (Result fi : f)
-        {
-            for (Result fr : front)
+        for (const Result& fi : f)
+//            for (Result fi : f)
+            {
+            for (const Result& fr : front)
             {
                 if (dominate(fi, fr))
                 {
@@ -554,10 +564,11 @@ list<Result> maxr(list<Result>& front,list<Result>& f)
         }
         if (!inserted) // Insert if not dominated and not equal
         {
-            for (Result fi : f)
-            {
+            for (const Result& fi : f)
+//                for (Result fi : f)
+                {
                 bool quit = false;
-                for (Result fr : front)
+                for (const Result& fr : front)
                 {
                     if (dominate(fr, fi) || fr == fi)
                     {
@@ -842,8 +853,9 @@ void doimport(char* fn)
     int e = fopen_s(&f, fn, "r");
     if (e != NULL)
     {
-        printf("Could not open %s in ", fn);
+        printf("*Could not open %s in ", fn);
         cout << fs::current_path();
+        exit(-10);
     }
     else
     {
@@ -882,7 +894,7 @@ int main(int argc, char *argv[])
     State state = start;
     state.firstc = WEST; 
     state.handtoplay = WEST;
-    M0 = 10;
+    M0 = 12;
     //cout << argc;
      if (argc > 4)
     {
@@ -893,7 +905,10 @@ int main(int argc, char *argv[])
         else if (argv[3][0] == 'D') trumpc = DIAMONDS;
         else if (argv[3][0] == 'C') trumpc = CLUBS;
         else if (argv[3][0] == 'N') trumpc = NOTRUMP;
-        else printf("Strange trump: %c ?[CDHSN]", argv[3][0]);
+        else {
+            printf("*Strange trump: %c ?[CDHSN]", argv[3][0]);
+            exit(-16);
+        }
         doimport(argv[4]);
         if (argc > 5)
         {
@@ -901,7 +916,11 @@ int main(int argc, char *argv[])
             else if (argv[5][0] == 'S') state.firstc = SOUTH;
             else if (argv[5][0] == 'E') state.firstc = EAST;
             else if (argv[5][0] == 'W') state.firstc = WEST;
-            else printf("Strange leader: %c ?[NSEW]", argv[5][0]);
+            else
+            {
+                printf("*Strange leader: %c ?[NSEW]", argv[5][0]);
+                exit(-18);
+            }
         }
     }
      state.handtoplay = state.firstc;
@@ -911,22 +930,30 @@ int main(int argc, char *argv[])
 
      printf("M=%d. %d deals w %d cards. Goal: %d tricks in %c, %c begins",
          M0, WORLDSIZE, cards, contract, "SHDCN"[trumpc], "NESW"[state.firstc]);
-     if (argc>6) // Card given
+     for (int cc=0;cc<10;cc++)
+     if (argc>6+cc) // Card given
      {
          int ctrumpc = HEARTS;
-         if (argv[6][0] == 'H') ctrumpc = HEARTS;
-         else if (argv[6][0] == 'S') ctrumpc = SPADES;
-         else if (argv[6][0] == 'D') ctrumpc = DIAMONDS;
-         else if (argv[6][0] == 'C') ctrumpc = CLUBS;
-         else if (argv[6][0] == 'N') ctrumpc = NOTRUMP;
-         else printf("Strange trump card: %c ?[CDHSN]", argv[3][0]);
+         int ct = toupper(argv[6 + cc][0]);
+         if (ct == 'H') ctrumpc = HEARTS;
+         else if (ct == 'S') ctrumpc = SPADES;
+         else if (ct == 'D') ctrumpc = DIAMONDS;
+         else if (ct == 'C') ctrumpc = CLUBS;
+         else if (ct == 'N') ctrumpc = NOTRUMP;
+         else
+         {
+             printf("Strange trump card: %c ?[CDHSN]", ct);
+             exit(-20);
+         }
          Playable move;
          move.c.suit = ctrumpc;
-         move.c.player = state.firstc;
+         move.c.player = state.handtoplay;// state.firstc;
          for (int i = 0; i < 16; i++)
-             if (dcardRank[i] == toupper(argv[6][1]))
+             if (dcardRank[i] == toupper(argv[6+cc][1]))
                  move.c.rank = i;
          state = playc(move.c, state);
+         if (cc > 0)
+             printf(" and %c", "NESW"[move.c.player]);
          printf(" with ");
          showcard2(move.c.suit,move.c.rank);
      } 
