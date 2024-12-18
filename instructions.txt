@@ -1,0 +1,89 @@
+Some instructions for using "my" alphamju (not working perfectly yet) Kalle Prorok 2024-12-18
+
+Just 
+C:\>alphamju
+uses a predefined deal.
+
+M specifies number of decisions to be made by NS. M=1 is only one decision and is usually called
+pimc; perfect information monte-carlo as used in many DDS-player/solvers, older Cuebids etc. Quick but not so correct. Higher M's assumes opponents (EW) know the declarer's cards, maybe not so fair either..but useful for finding the best way of declaring versus ideal(?) opponents.
+
+I provided some example .PBN:s, maybe try with your own? (it is running slow so toy examples with few cards; preferably with cards like 876 instead of 853 to keep branch-factor down; add lines like
+
+[Deal "W:.765.765.8 .AJT.AJT.A .Q32.Q32.7 .K98.K98.K"]
+[Deal "W:.Q65.765.8 .AJT.AJT.A .432.Q32.7 .K98.K98.K"]
+
+in a .pbn-file.
+ ) 
+
+By giving parameters; M tricks suit/N pbn.file; M=6, take 4 tricks in NT with examples read from file (first 4 is shown)
+
+C:\>alphamju 6 4 N queen.pbn
+
+(one missing queen) you get 
+
+6 W:C8 50% fb:<[11]>f:<[10][01]>fr:<[10][01]>
+Final:<[10][01]> Score: 50.00 %. Time taken by function :   0.024 seconds
+Press Enter!
+
+With West best lead (C8) the contract make in 50% of the cases (we call it Worlds; different settings of EW-cards). If W lead something else (H) contract makes more often. The <[10][01]> says the contract can be made (1) in either deal (World) but not both. 6 says it is the last decision. Internally in the code one can change the Printings to earlier cards (with MPREV) but it is currently messy.
+
+
+But with several Queens:
+
+Deal 0-----
+            -
+            AJT
+            AJT
+            A
+-                       -
+765                     Q43
+765                     Q32
+8                       7
+            -
+            K98
+            K98
+            K
+in different hands in the deals provided you need a high M-value.
+
+
+C:\>alphamju 6 7 N queens.pbn
+Always succeeds because just 6 NS-cards are selected before DDS jump in but with M=11 (6 cards by N and 5 cards as S - the (possibly wrong) logic can not postpone decision so DDS helps finds the queens)
+
+C:\>alphamju 11 7 N queens.pbn
+11 W:C8 50% fb:<[0101][0110][1001][1010]>f:<[1001][0110][0101][1010]>fr:<[1001][0101][0110][1010]>
+
+says club 8 gives 50% chance to beat/make the contract.
+
+
+You can also specify cards leader and cards lead (up to 10);
+>alphamju 11 7 N queens.pbn W C8
+
+results in:
+11 N:CA 50% fb:<[1001][0110][0101][1010]>f:<[1010][0101][0110][1001]>fr:<[1001][0110][0101][1010]>
+Final:<[1001][0110][0101][1010]> Score: 50.00 %. Time taken by function :   1.970 seconds
+
+
+>alphamju 11 7 N queens.pbn W C8 CA C7 CK
+
+11 N:HJ 50% fb:<[0101][1010]>f:<[1010][0101]>fr:<[0101][1010]>
+11 N:HA 50% fb:<[0101][1010]>f:<[1010]>fr:<[0101][1010]>
+11 N:DJ 50% fb:<[0110][1001][0101][1010]>f:<[0101][1001][0110][1010]>fr:<[0110][1001][0101][1010]>
+11 N:DA 25% fb:<[0110][1001][0101][1010]>f:<[0100][1000]>fr:<[0110][1001][0101][1010]>
+Final:<[0110][1001][0101][1010]> Score: 50.00 %. Time taken by function :   1.528 seconds
+
+Compare with standard Monte-carlo (M=1, runs Quick but always finds the Queens)
+>alphamju 1 7 N queens.pbn W C8 CA C7 CK
+
+1 N:HJ100% fb:<[1111]>f:<[1111]>fr:<[1111]>
+1 N:HA 50% fb:<[1111]>f:<[1010]>fr:<[1111]>
+1 N:DJ100% fb:<[1111]>f:<[1111]>fr:<[1111]>
+1 N:DA 50% fb:<[1111]>f:<[1100]>fr:<[1111]>
+Final:<[1111]> Score: 100.00 %. Time taken by function :   0.010 seconds
+
+My Alphamju handles up to 200 examples and is running DDS parallel on max 16 threads at a time. Timing is on a Intel i9. dds.dll needs to be in the same directory. Not many parameter error-checks are done and there are still errors in the internal logic, it doesn't solve thorvald.pbn.
+
+
+
+
+
+
