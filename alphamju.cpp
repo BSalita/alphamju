@@ -21,6 +21,7 @@
 #include "hands.h"
 #include <set>
 #include <list>
+#include <stack>
 #include <chrono>
 #include <map>
 #include <algorithm>
@@ -39,7 +40,7 @@ namespace fs = std::filesystem;
 int WORLDSIZE = 4;// 8; // Actual dynamic number of deals
 #define MWORLDSIZE MAXNOOFBOARDS // Max worldsize, same as in DDS
 
-#define MPREV 0 // How many M's should be shown before end; 0 = no, 1 = one at M-1, 2 gets a lot of text
+//#define MPREV 0 // How many M's should be shown before end; 0 = no, 1 = one at M-1, 2 gets a lot of text
 
 char Worlds[MWORLDSIZE][130] = { // Store all the hands as PBN
 
@@ -75,7 +76,11 @@ unsigned int holdingsc[MWORLDSIZE][DDS_HANDS][DDS_SUITS]; // Store all the hands
 int cards = 7;// 8; // No of cards in each Deal
 int contract = 7; // 8; // 12;
 int trumpc = NOTRUMP; //HEARTS; //  NOTRUMP;
-int M0 = 10; // Global - user setting of M to start. Default value
+int M0 = 11; // Global - user setting of M to start. Default value
+int L = 0; // Level of trace-prints from selected cards
+#define LOPFILE "lop00.txt"
+FILE* LOP; // File for logging Line of Play
+#define PRETTYFILE "deal00.txt"
 
 struct State
 {
@@ -733,12 +738,17 @@ State playc(Card move, State state)
     return state;
 }
 
-void printfc(int M,Card c, list<Result>& fbef, list<Result>& front, list<Result>& f)
+void printfc(int trick,Card c, list<Result>& fbef, list<Result>& front, list<Result>& f)
 {
 //    printf("%d;%c:%c%c%3.0f%%/%2.0f%% ", M, "NESW"[c.player], "SHDC"[c.suit], dcardRank[c.rank], score(f), score(front));
 //    printresults(f, "f"); printresults(front, "fr");
-    printf("\n%d %c:%c%c%3.0f%% ", M, "NESW"[c.player], "SHDC"[c.suit], dcardRank[c.rank], score(f) );
-    printresults(fbef, "fb"); printresults(f, "f");  printresults(front, "fr");
+    if (L>0)
+        fprintf(LOP,"\n%d %c %c%c%4.0f", trick, "NESW"[c.player], "SHDC"[c.suit], dcardRank[c.rank], score(f) );
+    if (trick == 1) 
+    {
+        printf("\n%d %c:%c%c%3.0f%% ", trick, "NESW"[c.player], "SHDC"[c.suit], dcardRank[c.rank], score(f));
+        printresults(fbef, "fb"); printresults(f, "f");  printresults(front, "fr");
+    }
 }
 
 
@@ -794,11 +804,11 @@ list<Result> au(State state, int M, set<short int> worlds)
             }
 //            list<Result> fbef = front;
 //            front = minr(front, f);
-            if (M >= (M0 - MPREV))
+            if (M > (M0 - L))
             {
                 list<Result> fbef = front;
                 front = minr(front, f);
-                printfc(M, it_playcards->first, fbef, front, f);
+                printfc(M0-M+1, it_playcards->first, fbef, front, f);
             } else
                 front = minr(front, f);
                         
@@ -837,11 +847,11 @@ list<Result> au(State state, int M, set<short int> worlds)
            //printresults(front, "front before max");
             list<Result> fbef = front;
             front = maxr(front, f);
-            if (M >= (M0 - MPREV))
+            if (M > (M0 - L))
             {
                 list<Result> fbef = front;
                 front = maxr(front, f);
-                printfc(M, it_playcards->first, fbef, front, f);
+                printfc(M0-M+1, it_playcards->first, fbef, front, f);
 
             } else
                 front = maxr(front, f);
@@ -940,6 +950,108 @@ void showdeal(int d)
     PrintHand(line, holdingsc[d]);
 }
 
+void openloglopfile()
+{
+    int e = fopen_s(&LOP, LOPFILE, "w");
+    if (e != NULL)
+    {
+        printf("*Could not open %s in ", LOPFILE);
+        cout << fs::current_path();
+        exit(-28); // File not creatable
+    }
+}
+
+#define INDENT 3
+typedef struct {
+    char lin[128];
+} LIN;
+
+void prettyprint()
+{
+    char inlin[130];
+    stack<LIN> st;
+
+    int e = fopen_s(&LOP, LOPFILE, "r");
+    if (e != NULL)
+    {
+        printf("*Could not open %s in ", LOPFILE);
+        cout << fs::current_path();
+        exit(-29); // File not available
+    }
+    LIN inlins;
+    while (fgets(inlins.lin, 128, LOP) != NULL)
+    {
+        st.push(inlins);
+
+/*        if (strncmp(inlin, "[Deal", 5) == 0) // Assume [Deal "W: 5.23. "]
+        {
+            if (inlin[6] == '"')
+            {
+                char* ptr = strrchr(inlin, '"'); // Find position of ending "
+                //                    cout << ptr;
+                __int64 chars = ptr - (inlin + 6) - 1;
+                //                    cout << chars;
+                strncpy_s(Worlds[deal], 128, inlin + 7, chars);
+                ptr = strchr(inlin + 7, ' ');
+                cards = int(ptr - (inlin + 7) - 5); // Find number of cards in the hand(s)
+                deal++;
+                WORLDSIZE = deal; // Update number of deals
+            }
+        }*/
+    }
+    fclose(LOP);
+    FILE* PRET;
+    e = fopen_s(&PRET, PRETTYFILE, "w");
+    if (e != NULL)
+    {
+        printf("*Could not open %s in ", PRETTYFILE);
+        cout << fs::current_path();
+        exit(-30); // File not available
+    }
+    int indent = 0;
+    strcpy_s(inlin, 128,st.top().lin); 
+    st.pop();
+    int tr, prev_tr,scor;
+    char dekl, prev_dekl, last_dekl, suit, rank;
+    sscanf_s(inlin, "%d %c %c%c %d", &prev_tr, &prev_dekl, 1,&suit, 1, &rank, 1, &scor);
+    last_dekl = prev_dekl;
+    while (!st.empty())
+    {
+        if (indent < 0)
+            indent = 0;
+
+        for (int i = 0; i < indent; i++)
+            fprintf(PRET, " ");
+        fprintf(PRET, "%d %c %c%c %d\n", prev_tr, prev_dekl, suit, rank, scor);
+        strcpy_s(inlin, 128, st.top().lin);
+        st.pop();
+        sscanf_s(inlin, "%d %c %c%c %d", &tr, &dekl, 1, &suit, 1, &rank, 1, &scor);
+        if (tr < prev_tr)
+        {
+            if (tr < prev_tr - 1)
+                indent -= INDENT * 2;
+            else
+                indent -= INDENT * 3;
+        }
+        else if (tr > prev_tr)
+        {
+            indent += INDENT;
+            last_dekl = prev_dekl = dekl;
+        } else if (dekl == last_dekl)
+            indent -= INDENT*2;
+
+        if ((prev_dekl != dekl) )
+        {
+            indent += INDENT;
+        }
+
+        prev_dekl = dekl;
+        prev_tr = tr;
+    }
+    fclose(PRET);
+
+}
+
 int main(int argc, char *argv[])
 {
     set<short int> w;
@@ -955,26 +1067,32 @@ int main(int argc, char *argv[])
     if (argc > 4)
     {
         M0 = atoi(argv[1]);
-        contract = atoi(argv[2]);
-        if (argv[3][0] == 'H') trumpc = HEARTS;
-        else if (argv[3][0] == 'S') trumpc = SPADES;
-        else if (argv[3][0] == 'D') trumpc = DIAMONDS;
-        else if (argv[3][0] == 'C') trumpc = CLUBS;
-        else if (argv[3][0] == 'N') trumpc = NOTRUMP;
+        L = atoi(argv[2]);
+
+        if (L > 0)
+            openloglopfile();
+
+        contract = atoi(argv[3]);
+
+        if (argv[4][0] == 'H') trumpc = HEARTS;
+        else if (argv[4][0] == 'S') trumpc = SPADES;
+        else if (argv[4][0] == 'D') trumpc = DIAMONDS;
+        else if (argv[4][0] == 'C') trumpc = CLUBS;
+        else if (argv[4][0] == 'N') trumpc = NOTRUMP;
         else {
-            printf("*Strange trump: %c ?[CDHSN]", argv[3][0]);
+            printf("*Strange trump: %c ?[CDHSN]", argv[4][0]);
             exit(-16);
         }
-        doimport(argv[4]);
-        if (argc > 5)
+        doimport(argv[5]);
+        if (argc > 6)
         {
-            if (argv[5][0] == 'N') state.firstc = NORTH;
-            else if (argv[5][0] == 'S') state.firstc = SOUTH;
-            else if (argv[5][0] == 'E') state.firstc = EAST;
-            else if (argv[5][0] == 'W') state.firstc = WEST;
+            if (argv[6][0] == 'N') state.firstc = NORTH;
+            else if (argv[6][0] == 'S') state.firstc = SOUTH;
+            else if (argv[6][0] == 'E') state.firstc = EAST;
+            else if (argv[6][0] == 'W') state.firstc = WEST;
             else
             {
-                printf("*Strange leader: %c ?[NSEW]", argv[5][0]);
+                printf("*Strange leader: %c ?[NSEW]", argv[6][0]);
                 exit(-18);
             }
         }
@@ -987,10 +1105,10 @@ int main(int argc, char *argv[])
     printf("M=%d. %d deals w %d cards. Goal: %d tricks in %c, %c begins",
          M0, WORLDSIZE, cards, contract, "SHDCN"[trumpc], "NESW"[state.firstc]);
     for (int cc=0;cc<10;cc++)
-    if (argc>6+cc) // Card(s) given
+    if (argc>7+cc) // Card(s) given
     {
          int ctrumpc = HEARTS;
-         int ct = toupper(argv[6 + cc][0]);
+         int ct = toupper(argv[7 + cc][0]);
          if (ct == 'H') ctrumpc = HEARTS;
          else if (ct == 'S') ctrumpc = SPADES;
          else if (ct == 'D') ctrumpc = DIAMONDS;
@@ -1005,7 +1123,7 @@ int main(int argc, char *argv[])
          move.c.suit = ctrumpc;
          move.c.player = state.handtoplay;// state.firstc;
          for (int i = 0; i < 16; i++)
-             if (dcardRank[i] == toupper(argv[6+cc][1]))
+             if (dcardRank[i] == toupper(argv[7+cc][1]))
                  move.c.rank = i;
          state = playc(move.c, state);
          if (cc > 0)
@@ -1024,9 +1142,14 @@ int main(int argc, char *argv[])
 
     printresults(r,"\nFinal");
     printf(" Score: %5.2f %%. ",score(r));
+    if (L > 0)
+    {
+        fclose(LOP);
+        prettyprint(); // Make it more understandable
+    }
     auto stop_time = high_resolution_clock::now();
     auto duration = duration_cast<microseconds>(stop_time - start_time);
-    printf("Time taken by function :%8.3f seconds\n", duration.count()/1000000.0);
+    printf("Time taken by function :%8.3f seconds\nPress Enter!", duration.count()/1000000.0);
     cin.get();
     return 0; // No error
 }
